@@ -126,6 +126,10 @@ inline bool ReadImageToDatum(const string& filename, const int label,
   return ReadImageToDatum(filename, label, 0, 0, true, encoding, datum);
 }
 
+bool ReadDetectionToDatum(const string& filename, const string& label,
+    const int height, const int width, const bool is_color,
+    const std::string & encoding, BBoxDatum* bbox_datum);
+
 bool DecodeDatumNative(Datum* datum);
 bool DecodeDatum(Datum* datum, bool is_color);
 

@@ -140,6 +140,31 @@ bool ReadImageToDatum(const string& filename, const int label,
     return false;
   }
 }
+
+bool ReadDetectionToDatum(const string& filename, const string& label,
+    const int height, const int width, const bool is_color,
+    const std::string & encoding, BBoxDatum* bbox_datum) {
+  if (!ReadImageToDatum(filename, -1, height, width, is_color, encoding,
+                        bbox_datum->mutable_datum())) {
+    return false;
+  }
+  std::ifstream label_file(label.c_str());
+  std::string line;
+  std::istringstream iss;
+  while (std::getline(label_file, line)) {
+    iss.str(line);
+    int l;
+    float x, y, w, h;
+    iss >> l >> x >> y >> w >> h;
+    BBox* bbox = bbox_datum->add_bbox();
+    bbox->set_label(l);
+    bbox->set_center_x(x);
+    bbox->set_center_y(y);
+    bbox->set_width(w);
+    bbox->set_height(h);
+  }
+  return true;
+}
 #endif  // USE_OPENCV
 
 bool ReadFileToDatum(const string& filename, const int label,

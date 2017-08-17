@@ -40,6 +40,20 @@ message Datum {
   optional bool encoded = 7 [default = false];
 }
 
+message BBox {
+    optional int32 label = 1;
+    // normalized bbox coordinates w.r.t image size
+    optional float center_x = 2;
+    optional float center_y = 3;
+    optional float width = 4;
+    optional float height = 5;
+}
+
+message BBoxDatum {
+  optional Datum datum = 1;
+  repeated BBox  bbox = 2;
+}
+
 message FillerParameter {
   // The filler type.
   optional string type = 1 [default = 'constant'];
