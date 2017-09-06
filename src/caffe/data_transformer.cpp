@@ -40,7 +40,8 @@ DataTransformer<Dtype>::DataTransformer(const TransformationParameter& param,
 
 template<typename Dtype>
 void DataTransformer<Dtype>::Transform(const Datum& datum,
-                                       Dtype* transformed_data) {
+                                       Dtype* transformed_data,
+                                       const vector<BBox*> & bboxes) {
   const string& data = datum.data();
   const int datum_channels = datum.channels();
   const int datum_height = datum.height();
@@ -91,6 +92,11 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
       h_off = (datum_height - crop_size) / 2;
       w_off = (datum_width - crop_size) / 2;
     }
+    CropBBox(bboxes, datum_height, datum_width, h_off, w_off);
+  }
+
+  if (do_mirror) {
+    MirrorBBox(bboxes);
   }
 
   Dtype datum_element;
@@ -126,10 +132,10 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
   }
 }
 
-
 template<typename Dtype>
 void DataTransformer<Dtype>::Transform(const Datum& datum,
-                                       Blob<Dtype>* transformed_blob) {
+                                       Blob<Dtype>* transformed_blob,
+                                       const vector<BBox*> & bboxes) {
   // If datum is encoded, decode and transform the cv::image.
   if (datum.encoded()) {
 #ifdef USE_OPENCV
@@ -143,7 +149,7 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
       cv_img = DecodeDatumToCVMatNative(datum);
     }
     // Transform the cv::image into blob.
-    return Transform(cv_img, transformed_blob);
+    return Transform(cv_img, transformed_blob, bboxes);
 #else
     LOG(FATAL) << "Encoded datum requires OpenCV; compile with USE_OPENCV.";
 #endif  // USE_OPENCV
@@ -178,7 +184,7 @@ void DataTransformer<Dtype>::Transform(const Datum& datum,
   }
 
   Dtype* transformed_data = transformed_blob->mutable_cpu_data();
-  Transform(datum, transformed_data);
+  Transform(datum, transformed_data, bboxes);
 }
 
 template<typename Dtype>
@@ -199,6 +205,16 @@ void DataTransformer<Dtype>::Transform(const vector<Datum> & datum_vector,
     uni_blob.set_cpu_data(transformed_blob->mutable_cpu_data() + offset);
     Transform(datum_vector[item_id], &uni_blob);
   }
+}
+
+template<typename Dtype>
+void DataTransformer<Dtype>::Transform(BBoxDatum& bbox_datum,
+                                       Blob<Dtype>* transformed_blob) {
+  vector<BBox*> bboxes;
+  for (int i = 0; i < bbox_datum.bbox_size(); i++) {
+    bboxes.push_back(bbox_datum.mutable_bbox(i));
+  }
+  Transform(bbox_datum.datum(), transformed_blob, bboxes);
 }
 
 #ifdef USE_OPENCV
@@ -224,7 +240,8 @@ void DataTransformer<Dtype>::Transform(const vector<cv::Mat> & mat_vector,
 
 template<typename Dtype>
 void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
-                                       Blob<Dtype>* transformed_blob) {
+                                       Blob<Dtype>* transformed_blob,
+                                       const vector<BBox*> & bboxes) {
   const int crop_size = param_.crop_size();
   const int img_channels = cv_img.channels();
   const int img_height = cv_img.rows;
@@ -286,12 +303,17 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
     }
     cv::Rect roi(w_off, h_off, crop_size, crop_size);
     cv_cropped_img = cv_img(roi);
+    CropBBox(bboxes, img_height, img_width, h_off, w_off);
   } else {
     CHECK_EQ(img_height, height);
     CHECK_EQ(img_width, width);
   }
 
   CHECK(cv_cropped_img.data);
+
+  if (do_mirror) {
+    MirrorBBox(bboxes);
+  }
 
   Dtype* transformed_data = transformed_blob->mutable_cpu_data();
   int top_index;
@@ -327,7 +349,8 @@ void DataTransformer<Dtype>::Transform(const cv::Mat& cv_img,
 
 template<typename Dtype>
 void DataTransformer<Dtype>::Transform(Blob<Dtype>* input_blob,
-                                       Blob<Dtype>* transformed_blob) {
+                                       Blob<Dtype>* transformed_blob,
+                                       const vector<BBox*> & bboxes) {
   const int crop_size = param_.crop_size();
   const int input_num = input_blob->num();
   const int input_channels = input_blob->channels();
@@ -375,9 +398,14 @@ void DataTransformer<Dtype>::Transform(Blob<Dtype>* input_blob,
       h_off = (input_height - crop_size) / 2;
       w_off = (input_width - crop_size) / 2;
     }
+    CropBBox(bboxes, input_height, input_width, h_off, w_off);
   } else {
     CHECK_EQ(input_height, height);
     CHECK_EQ(input_width, width);
+  }
+
+  if (do_mirror) {
+    MirrorBBox(bboxes);
   }
 
   Dtype* input_data = input_blob->mutable_cpu_data();
@@ -538,6 +566,55 @@ int DataTransformer<Dtype>::Rand(int n) {
   caffe::rng_t* rng =
       static_cast<caffe::rng_t*>(rng_->generator());
   return ((*rng)() % n);
+}
+
+template <typename Dtype>
+void DataTransformer<Dtype>::CropBBox(const vector<BBox*> & bboxes,
+                                      int datum_height, int datum_width,
+                                      int h_off, int w_off) {
+  const int crop_size = param_.crop_size();
+  for (vector<BBox*>::const_iterator it = bboxes.begin();
+       it != bboxes.end(); it++) {
+    BBox* bbox = *it;
+
+    int coords[4];
+    // x_min
+    coords[0] = (bbox->center_x() - bbox->width() / 2) *
+                datum_width - w_off;
+    // y_min
+    coords[1] = (bbox->center_y() - bbox->height() / 2) *
+                datum_height - h_off;
+    // x_max
+    coords[2] = (bbox->center_x() + bbox->width() / 2) *
+                datum_width - w_off;
+    // y_max
+    coords[3] = (bbox->center_y() + bbox->height() / 2) *
+                datum_height - h_off;
+    for (int i = 0; i < 4; i++) {
+        coords[i] = Clip(coords[i], 0, crop_size);
+    }
+
+    float width = (coords[2] - coords[0]) / 2.0;
+    bbox->set_width(width / crop_size);
+
+    float height = (coords[3] - coords[1]) / 2.0;
+    bbox->set_height(height / crop_size);
+
+    float center_x = coords[0] + width;
+    bbox->set_center_x(center_x / crop_size);
+
+    float center_y = coords[1] + height;
+    bbox->set_center_y(center_y / crop_size);
+  }
+}
+
+template<typename Dtype>
+void DataTransformer<Dtype>::MirrorBBox(const vector<BBox*> & bboxes) {
+    for (vector<BBox*>::const_iterator it = bboxes.begin();
+         it != bboxes.end(); it++) {
+        BBox* bbox = *it;
+        bbox->set_center_x(1 - bbox->center_x());
+    }
 }
 
 INSTANTIATE_CLASS(DataTransformer);

@@ -1,11 +1,15 @@
 #ifndef CAFFE_DATA_TRANSFORMER_HPP
 #define CAFFE_DATA_TRANSFORMER_HPP
 
+#include <algorithm>
 #include <vector>
 
 #include "caffe/blob.hpp"
 #include "caffe/common.hpp"
 #include "caffe/proto/caffe.pb.h"
+
+using std::min;
+using std::max;
 
 namespace caffe {
 
@@ -34,8 +38,11 @@ class DataTransformer {
    * @param transformed_blob
    *    This is destination blob. It can be part of top blob's data if
    *    set_cpu_data() is used. See data_layer.cpp for an example.
+   * @param bboxes
+   *    bboxes, if any, to be transformed.
    */
-  void Transform(const Datum& datum, Blob<Dtype>* transformed_blob);
+  void Transform(const Datum& datum, Blob<Dtype>* transformed_blob,
+                 const vector<BBox*> & bboxes = vector<BBox*>());
 
   /**
    * @brief Applies the transformation defined in the data layer's
@@ -49,6 +56,18 @@ class DataTransformer {
    */
   void Transform(const vector<Datum> & datum_vector,
                 Blob<Dtype>* transformed_blob);
+
+  /**
+   * @brief Applies the transformation defined in the data layer's
+   * transform_param block to both data and label.
+   *
+   * @param bbox_datum
+   *    Datum containing the data and label to be transformed.
+   * @param transformed_blob
+   *    This is destination blob. It can be part of top blob's data if
+   *    set_cpu_data() is used. See data_layer.cpp for an example.
+   */
+  void Transform(BBoxDatum& bbox_datum, Blob<Dtype>* transformed_blob);
 
 #ifdef USE_OPENCV
   /**
@@ -73,8 +92,11 @@ class DataTransformer {
    * @param transformed_blob
    *    This is destination blob. It can be part of top blob's data if
    *    set_cpu_data() is used. See image_data_layer.cpp for an example.
+   * @param bboxes
+   *    bboxes, if any, to be transformed.
    */
-  void Transform(const cv::Mat& cv_img, Blob<Dtype>* transformed_blob);
+  void Transform(const cv::Mat& cv_img, Blob<Dtype>* transformed_blob,
+                 const vector<BBox*> & bboxes = vector<BBox*>());
 #endif  // USE_OPENCV
 
   /**
@@ -87,8 +109,11 @@ class DataTransformer {
    * @param transformed_blob
    *    This is destination blob, it will contain as many images as the
    *    input blob. It can be part of top blob's data.
+   * @param bboxes
+   *    bboxes, if any, to be transformed.
    */
-  void Transform(Blob<Dtype>* input_blob, Blob<Dtype>* transformed_blob);
+  void Transform(Blob<Dtype>* input_blob, Blob<Dtype>* transformed_blob,
+                 const vector<BBox*> & bboxes = vector<BBox*>());
 
   /**
    * @brief Infers the shape of transformed_blob will have when
@@ -138,7 +163,18 @@ class DataTransformer {
    */
   virtual int Rand(int n);
 
-  void Transform(const Datum& datum, Dtype* transformed_data);
+  void Transform(const Datum& datum, Dtype* transformed_data,
+                 const vector<BBox*> & bboxes);
+
+   inline int Clip(int value, int minimum, int maximum) {
+     return max(min(value, minimum), maximum);
+   }
+
+  void CropBBox(const vector<BBox*> & bboxes,
+                int datum_height, int datum_width, int h_off, int w_off);
+
+  void MirrorBBox(const vector<BBox*> & bboxes);
+
   // Tranformation parameters
   TransformationParameter param_;
 
